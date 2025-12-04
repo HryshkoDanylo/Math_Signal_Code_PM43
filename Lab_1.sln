@@ -1,31 +1,212 @@
-﻿
-Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.13.35913.81 d17.13
-MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Lab_1", "Lab_1\Lab_1.vcxproj", "{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}"
-EndProject
-Global
-	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|x64 = Debug|x64
-		Debug|x86 = Debug|x86
-		Release|x64 = Release|x64
-		Release|x86 = Release|x86
-	EndGlobalSection
-	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Debug|x64.ActiveCfg = Debug|x64
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Debug|x64.Build.0 = Debug|x64
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Debug|x86.ActiveCfg = Debug|Win32
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Debug|x86.Build.0 = Debug|Win32
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Release|x64.ActiveCfg = Release|x64
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Release|x64.Build.0 = Release|x64
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Release|x86.ActiveCfg = Release|Win32
-		{A029BB33-5933-4866-B85A-0AA6DCF5FBCD}.Release|x86.Build.0 = Release|Win32
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {08926074-76CC-447A-A8A2-8D9DE9D3A4DA}
-	EndGlobalSection
-EndGlobal
+#include <iostream>
+#include <cmath>
+#include <fstream>
+#include <vector>
+#include <cstdlib>
+#include <iomanip>
+using namespace std;
+
+// 1) аналітичне значення функції f(x) = n * sin(PI * n * x) [0; PI ]
+double f(double x, int n, double PI) {
+    return n * sin(PI * n * x);
+}
+
+// Чисельне інтегрування методом трапецій.
+// Формула з методички: a_k = (2/T) * інтеграл ( f(x) cos(kx) dx), b_k = (2/T) * інтеграл ( f(x) sin(kx) dx)
+double integrate(double (*func)(double, int, int, double), int k, int n, double a, double b, int steps, double PI) {
+    double h = (b - a) / steps;   // крок розбиття інтервалу
+    double sum = 0.0;
+
+    sum += func(a, k, n, PI) / 2.0;
+    sum += func(b, k, n, PI) / 2.0;
+
+    for (int i = 1; i < steps; i++) {
+        double x = a + i * h;
+        sum += func(x, k, n, PI);
+    }
+
+    return sum * h;
+}
+
+// Підінтегральні вирази f(x)*cos(kx),  f(x)*sin(kx)
+double f_cos(double x, int k, int n, double PI) {
+    return f(x, n, PI) * cos(2.0 * k * x);
+}
+double f_sin(double x, int k, int n, double PI) {
+    return f(x, n, PI) * sin(2.0 * k * x);
+}
+
+// 2) Коеф. Фур'є. Формули 6.2, разове прорахування 
+// a_k = (2/T) * ∫_{0}^{T} f(x) cos(kx) dx
+// b_k = (2/T) * ∫_{0}^{T} f(x) sin(kx) dx
+// T = PI (основний інтервал [0, PI])
+double compute_a(int k, int n, double PI, int steps = 2000) {
+    double T = PI;
+    double integral = integrate(f_cos, k, n, 0.0, T, steps, PI);
+    return (2.0 / T) * integral;
+}
+double compute_b(int k, int n, double PI, int steps = 2000) {
+    double T = PI;
+    double integral = integrate(f_sin, k, n, 0.0, T, steps, PI);
+    return (2.0 / T) * integral;
+}
+
+// Обчислення усіх коефіцієнтів Ак, Аб, зберігаю у масив через вектор
+void compute_all_coefficients(int N, int n, double PI, vector<double>& a, vector<double>& b, int steps = 2000) {
+    a.assign(N + 1, 0.0); // a[0]..a[N]
+    b.assign(N + 1, 0.0); // b[0]..b[N]
+    for (int k = 0; k <= N; ++k) {
+        // a_k обчислюється за формулою (2/T)*∫ f(x) cos(kx) dx
+        a[k] = compute_a(k, n, PI, steps);
+        if (k == 0) {
+            b[k] = 0.0; // b0 не існує для синуса. Або буде просто 0, що так що так 0. 
+        }
+        else {
+            // b_k обчислюється за формулою (2/T)*∫ f(x) sin(kx) dx
+            b[k] = compute_b(k, n, PI, steps);
+        }
+    }
+}
+
+// 3) Наближення Рядом Фур'є, формула (6.1) з методички:
+// F_N(x) = a0/2 + Σ_{k=1..N} ( a_k * cos(kx) + b_k * sin(kx) )
+double fourier_approx_from_coeff(double x, int N, int n, double PI, const vector<double>& a, const vector<double>& b) {
+    double result = 0.0;
+    result += a[0] / 2.0;
+    for (int k = 1; k <= N; ++k) { // Гармоніки
+        result += a[k] * cos(2.0*k* x) + b[k] * sin(2.0*k * x);
+    }
+
+    return result;
+}
+
+// 5) Оцінка відносної похибки
+// Відносна квадратична похибка (%) = sqrt( sum((f-F)^2) / sum(f^2) ) * 100
+double compute_relative_error(int n, int N, double PI, const vector<double>& a, const vector<double>& b, int samples = 1000) {
+    double sum_sq_diff = 0.0;
+    double sum_sq_true = 0.0;
+
+    for (int i = 0; i <= samples; ++i) {
+        double x = (double)i / samples * PI;
+        double y_true = f(x, n, PI);
+        double y_approx = fourier_approx_from_coeff(x, N, n, PI, a, b);
+        double diff = y_true - y_approx;
+
+        sum_sq_diff += diff * diff;
+        sum_sq_true += y_true * y_true;
+    }
+
+    if (sum_sq_true <= 1e-12) return 0.0;
+    return sqrt(sum_sq_diff / sum_sq_true) * 100.0;
+}
+
+// 6 гнуплот
+void save_results(const string& filename, int N, const vector<double>& a, const vector<double>& b, double rel_error) {
+    ofstream out(filename);
+    if (!out.is_open()) {
+        cerr << "Cannot open file " << filename << " for writing results." << endl;
+        return;
+    }
+
+    out << fixed << setprecision(12);
+    out << "Results of Fourier approximation\n";
+    out << "Order N: " << N << "\n\n";
+
+    out << "Coefficients a_k (k=0..N):\n";
+    for (int k = 0; k <= N; ++k) {
+        out << "a[" << k << "] = " << a[k] << "\n";
+    }
+    out << "\nCoefficients b_k (k=0..N; b[0]=0):\n";
+    for (int k = 0; k <= N; ++k) {
+        out << "b[" << k << "] = " << b[k] << "\n";
+    }
+
+    out << "\nRelative error (%): " << rel_error << "\n";
+
+    out.close();
+}
+
+// гнуплот
+void plot_graphs_gnuplot(int n, int N, double PI, const vector<double>& a, const vector<double>& b) {
+    ofstream data("data.dat");
+    int points = 500;
+    for (int i = 0; i <= points; ++i) {
+        double x = (double)i / points * PI;
+        double y1 = f(x, n, PI);
+        double y2 = fourier_approx_from_coeff(x, N, n, PI, a, b);
+        data << x << " " << y1 << " " << y2 << "\n";
+    }
+    data.close();
+
+    ofstream script("plot.gnu");
+    script << "set xrange [0:]\n";
+    script << "set title 'Fourier series approximation (N=" << N << ")'\n";
+    script << "set xlabel 'x'\n";
+    script << "set ylabel 'y'\n";
+    script << "set grid\n";
+    script << "plot 'data.dat' using 1:2 with lines title 'Original f(x)' lw 2 lc rgb 'red', \\\n";
+    script << "     'data.dat' using 1:3 with lines title 'Fourier approx' lw 2 lc rgb 'blue'\n";
+    script.close();
+
+    system("\"D:\\\\gnuplot\\\\bin\\\\gnuplot.exe\" -persist plot.gnu");
+}
+
+int main() {
+    const double PI = 3.141592653589793;
+    int n = 5;
+
+    // 1)
+    double x;
+    do {
+        cout << "Enter x (0 <= x <= pi): ";
+        cin >> x;
+        if (x < 0 || x > PI) {
+            cout << "Invalid input. Please enter x in range [0, pi]." << endl;
+        }
+    } while (x < 0 || x > PI);
+
+    cout << fixed << setprecision(12);
+    cout << "f(" << x << ") = " << f(x, n, PI) << endl;
+
+    // N? Обчислення коефіцієнтів
+    int N;
+    cout << "Enter number of Fourier coefficients N: ";
+    cin >> N;
+    if (N < 0) {
+        cout << "N must be non-negative. Setting N = 0." << endl;
+        N = 0;
+    }
+
+    vector<double> a, b;
+    cout << "\nComputing Fourier coefficients" << endl;
+    compute_all_coefficients(N, n, PI, a, b, 2000);
+
+    cout << "\nFourier coefficients:\n";
+    for (int k = 0; k <= N; ++k) {
+        cout << "a[" << k << "] = " << a[k];
+        if (k == 0) cout << ", b[" << k << "] = 0";
+        else cout << ", b[" << k << "] = " << b[k];
+        cout << "\n";
+    }
+
+    // 3) Наближення в точці
+    double approx = fourier_approx_from_coeff(x, N, n, PI, a, b);
+    cout << "\nFourier approximation:\n";
+    cout << "F_" << N << "(" << x << ") = " << approx << endl;
+
+    // 5) похибка ( відносна )
+    double rel_error = compute_relative_error(n, N, PI, a, b, 2000);
+    cout << "\nRelative error (%): " << rel_error << endl;
+
+    // Результати у файл
+    cout << "\nSaving results to saved.txt ..." << endl;
+    save_results("saved.txt", N, a, b, rel_error);
+    cout << "Saved to saved.txt\n";
+
+    // Графіка
+    cout << "\nDrawing graph with gnuplot..." << endl;
+    plot_graphs_gnuplot(n, N, PI, a, b);
+
+    cout << "\nProgram finished.\n";
+    return 0;
+}
