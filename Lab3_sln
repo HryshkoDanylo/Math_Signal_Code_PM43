@@ -1,0 +1,213 @@
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <chrono>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <complex>
+
+using namespace std;
+
+const double PI = acos(-1.0);
+
+//Ck = Ak + jBk
+struct FourierCoefficient {
+    double Ak; // Реальна частина
+    double Bk; // Уявна частина
+};
+
+// підрахунок операцій
+struct OperationCount {
+    long long additions = 0;
+    long long multiplications = 0;
+};
+
+// 1.1 функція для обчислення одного к-того члена ряду Фур'є 
+pair<double, double> calculate_dft_term(double fi, int k, int i, int N) {
+    double angle = (2.0 * PI * k * i) / N;
+    double real_term = fi * cos(angle);
+    double imag_term = -fi * sin(angle);
+    return { real_term, imag_term };
+}
+
+// 1.2 Функція для Ck
+FourierCoefficient calculate_fourier_coefficient(const vector<double>& signal, int k, int N, OperationCount& ops) {
+    double sum_Ak = 0.0;
+    double sum_Bk = 0.0;
+
+    for (int i = 0; i < N; ++i) {
+        pair<double, double> terms = calculate_dft_term(signal[i], k, i, N);
+        sum_Ak += terms.first;
+        sum_Bk += terms.second;
+
+        // Підрахунок операцій для ДПФ:
+        // cos/sin, множення на fi, 2 множення 2 додавання 
+        ops.multiplications += 2;
+        ops.additions += 2;
+    }
+
+    FourierCoefficient Ck;
+    Ck.Ak = sum_Ak / N;
+    Ck.Bk = sum_Bk / N;
+    ops.multiplications += 2;
+
+    return Ck;
+}
+
+// ШПФ
+
+// Допоміжна функція для перестановки індексів
+unsigned int bit_reverse(unsigned int x, int log2n) {
+    int n = 0;
+    for (int i = 0; i < log2n; i++) {
+        n <<= 1;
+        n |= (x & 1);
+        x >>= 1;
+    }
+    return n;
+}
+
+// Реалізація згідно з лекцією
+void fft(vector<complex<double>>& a, bool invert, OperationCount& ops) {
+    int n = a.size();
+    int log2n = 0;
+    while ((1 << log2n) < n) log2n++;
+
+    // 1. Біт-реверсивна перестановка
+    for (int i = 0; i < n; i++) {
+        int rev = bit_reverse(i, log2n);
+        if (i < rev) {
+            swap(a[i], a[rev]);
+        }
+    }
+
+    // 2. Основний цикл, метелики
+    for (int len = 2; len <= n; len <<= 1) { // len - довжина групи, 2, 4, 8
+        double ang = 2 * PI / len * (invert ? -1 : 1); // коло поділити на к-ксть = отримуємо кут повороту
+        // W_len - поворотний множник для поточного етапу
+        complex<double> wlen(cos(ang), sin(ang));
+
+        for (int i = 0; i < n; i += len) {
+            complex<double> w(1);
+            for (int j = 0; j < len / 2; j++) {
+                // метелик
+                complex<double> u = a[i + j];
+                complex<double> v = a[i + j + len / 2] * w;
+
+                a[i + j] = u + v;
+                a[i + j + len / 2] = u - v;
+
+                w *= wlen;
+
+                //  (a+bi)(c+di) = (ac-bd) + i(ad+bc)
+                //  4  множення і 2 додавання.
+               ops.multiplications += 4;
+                ops.additions += 2;
+
+                // додавання (u + v) - +2, віднімання (u - v): -2
+                ops.additions += 4;
+
+                // Оновлення w (w *= wlen): комплексне множення
+                ops.multiplications += 4;
+                ops.additions += 2;
+            }
+        }
+    }
+
+    if (!invert) {
+        for (int i = 0; i < n; i++) {
+            a[i] /= n;
+            ops.multiplications += 2; // Ділення дійсної та уявної частин
+        }
+    }
+}
+
+// --- ГОЛОВНА ФУНКЦІЯ ДЛЯ ЛАБОРАТОРНОЇ 3 ---
+void run_lab_three() {
+    cout << "\n\n========== LAB 3: FFT vs DFT Comparison ==========\n" << endl;
+
+    // 1. Вхідний сигнал З 2 лабораторної
+    int N = 8;
+    vector<double> input_signal = { 0, 1, 1, 0, 0, 1, 1, 0};
+
+    cout << "Input Signal (N=" << N << "): { ";
+    for (double val : input_signal) cout << val << " ";
+    cout << "}" << endl;
+
+    // ДПФ
+    OperationCount dft_ops;
+    vector<FourierCoefficient> dft_results;
+
+    auto start_dft = chrono::high_resolution_clock::now();
+    for (int k = 0; k < N; ++k) {
+        dft_results.push_back(calculate_fourier_coefficient(input_signal, k, N, dft_ops));
+    }
+    auto end_dft = chrono::high_resolution_clock::now();
+    chrono::duration<double, micro> time_dft = end_dft - start_dft;
+    
+    // ШПФ
+    OperationCount fft_ops;
+    vector<complex<double>> fft_signal(N);
+    for (int i = 0; i < N; ++i) {
+        fft_signal[i] = complex<double>(input_signal[i], 0);
+    }
+
+    auto start_fft = chrono::high_resolution_clock::now();
+    fft(fft_signal, false, fft_ops);
+    auto end_fft = chrono::high_resolution_clock::now();
+    chrono::duration<double, micro> time_fft = end_fft - start_fft;
+
+    // ВИВІД РЕЗУЛЬТАТІВ
+
+    cout << "\n--- 1. Results Comparison (Check Correctness) ---" << endl;
+    cout << left << setw(5) << "k"
+        << setw(35) << "DFT (Classic)"
+        << setw(35) << "FFT (Fast)" << endl;
+    cout << "--------------------------------------------------------------------------" << endl;
+
+    for (int k = 0; k < N; ++k) {
+        stringstream ss_dft, ss_fft;
+        ss_dft << fixed << setprecision(3) << dft_results[k].Ak
+            << (dft_results[k].Bk >= 0 ? " + j" : " - j") << abs(dft_results[k].Bk);
+
+        // Для FFT беремо real() та imag()
+        ss_fft << fixed << setprecision(3) << fft_signal[k].real()
+            << (fft_signal[k].imag() >= 0 ? " + j" : " - j") << abs(fft_signal[k].imag());
+
+        cout << left << setw(5) << k
+            << setw(35) << ss_dft.str()
+            << setw(35) << ss_fft.str() << endl;
+    }
+
+    // порівняння
+    cout << "\n--- 2. Performance Comparison ---" << endl;
+
+    // Теоретичні формули з лекції:
+    // ДПФ Множення: N^2
+    // ДПФ Додавання: N(N-1)
+    // ШПФ Множення: (N/2) * log2(N)
+    // ШПФ Додавання: N * log2(N)
+
+    cout << left << setw(25) << "Metric"
+        << setw(20) << "DFT (Code)"
+        << setw(20) << "FFT (Code)" << endl;
+    cout << "------------------------------------------------------------" << endl;
+
+    cout << left << setw(25) << "Time (microseconds)"
+        << setw(20) << time_dft.count()
+        << setw(20) << time_fft.count() << endl;
+
+    cout << left << setw(25) << "Real Multiplications"
+        << setw(20) << dft_ops.multiplications
+        << setw(20) << fft_ops.multiplications << endl;
+
+    cout << left << setw(25) << "Real Additions"
+        << setw(20) << dft_ops.additions
+        << setw(20) << fft_ops.additions << endl;
+}
+int main() {
+    run_lab_three();
+
+    return 0;
+}
