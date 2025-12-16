@@ -1,0 +1,131 @@
+#include <iostream>
+#include <cmath>
+#include <complex>
+#include <vector>
+#include <fstream>
+#include <string>
+#include <cstdlib>
+
+using namespace std;
+const double PI = 3.14159265358979323846;
+const int n = 6;
+
+// Структура для повернення результату, дійсна та уявна частини
+struct FourierResult {
+    double Re;
+    double Im;
+};
+
+// Функція f(t) = t^(2n) для n=6 -> f(t) = t^12
+double calculate_f(double t) {
+    return pow(t, 2 * n);
+}
+
+// Головна функція обчислення k-го члена інтегралу Фур'є
+// k - номер гармоніки
+// T - період
+FourierResult calculateFourierMember(int k, double T) {
+    double N = 100.0 * n;
+
+    //  Кутова частота
+    double wk = (2.0 * PI * k) / T;
+
+    // Метод прямокутників
+    double re_sum = 0.0;
+    double im_sum = 0.0;
+
+    // Крок інтегрування (dt). Чим менше число, тим точніший результат і тим довше буде рахувати програма, крок 0.1 для N = 600 12000 ітерацій
+    double dt = 0.1;
+
+    for (double t = -N; t <= N; t += dt) {
+        double ft = calculate_f(t);
+
+        // Аргумент для синуса і косинуса: -wk * t
+        double arg = -wk * t;
+
+        // Re F(wk) = integral of f(t) * cos(-wk*t) реальна частина
+        re_sum += ft * std::cos(arg) * dt;
+
+        // Im F(wk) = integral of f(t) * sin(-wk*t)
+        im_sum += ft * sin(arg) * dt;
+    }
+
+    FourierResult result;
+    result.Re = re_sum;
+    result.Im = im_sum;
+
+    return result;
+}
+
+// Частина 2. Функція для обчислення спектру амплітуд
+double calculateAmplitudeSpectrum(FourierResult f_wk) {
+    // Формуола sqrt(Re^2 + Im^2)
+    return sqrt(pow(f_wk.Re, 2) + pow(f_wk.Im, 2));
+}
+
+// Частина 3. Функція для генерації даних та побудови графіків ---
+void performTaskAndPlot() {
+    // Періоди згідно завдання
+    vector<double> T_values = { 4, 8, 16, 32, 64, 128 };
+
+    // скрипт для гнупл.
+    ofstream plot_script("plot_all.gnu");
+    if (!plot_script.is_open()) {
+        cerr << "Error creating plot script!" << endl;
+        return;
+    }
+
+    cout << "Generating data files and script..." << endl;
+
+    // Цикл по всіх періодах T
+    for (size_t i = 0; i < T_values.size(); ++i) {
+        double T = T_values[i];
+        string filename = "data_T" + to_string((int)T) + ".dat";
+        ofstream data_file(filename);
+        data_file << "# k\tRe\tIm\tAmplitude\n";
+
+        // Підрахунок гармонік, к від 0 до 20 для точності.
+        int max_k = 20;
+        for (int k = 0; k <= max_k; ++k) {
+            FourierResult res = calculateFourierMember(k, T);
+            double amp = calculateAmplitudeSpectrum(res);
+
+            // Запис у файл результів
+            data_file << k << "\t" << res.Re << "\t" << res.Im << "\t" << amp << "\n";
+        }
+        data_file.close();
+        plot_script << "set terminal wxt " << i << " size 800,600 title 'Period T=" << T << "'\n";
+        plot_script << "set title 'Spectrum for T = " << T << "'\n";
+        plot_script << "set xlabel 'k (Harmonic number)'\n";
+        plot_script << "set ylabel 'Value'\n";
+        plot_script << "set grid\n";
+
+        //  Re (синя) Amplitude (червона)
+        plot_script << "plot '" << filename << "' using 1:2 with linespoints pt 7 lc 'blue' title 'Re F(wk)', \\\n";
+        plot_script << "     '" << filename << "' using 1:4 with linespoints pt 5 lc 'red' title '|F(wk)|'\n";
+
+        plot_script << "\n";
+    }
+
+    plot_script.close();
+    cout << "Data generation complete. Launching Gnuplot..." << endl;
+
+    // Виклик Gnuplot
+    system("\"D:\\\\gnuplot\\\\bin\\\\gnuplot.exe\" -persist plot_all.gnu");
+}
+
+int main() {
+    // Тестовий вивід для одного значення
+    int k = 1;
+    double T = 12.0;
+    cout << "Calculating single test for n = " << n << ", k = " << k << ", T = " << T << "...\n";
+    FourierResult fourierParts = calculateFourierMember(k, T);
+    double amplitude = calculateAmplitudeSpectrum(fourierParts);
+    cout << "Re F(w_k): " << fourierParts.Re << endl;
+    cout << "Im F(w_k): " << fourierParts.Im << endl;
+    cout << "|F(w_k)| (Amplitude): " << amplitude << endl;
+    cout << "-------------------------" << endl;
+    performTaskAndPlot();
+
+    return 0;
+}
